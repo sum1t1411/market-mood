@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Market Mood - Indian Financial Sentiment</title>
+
+  <!-- Tailwind CSS + Flowbite -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/flowbite@1.6.5/dist/flowbite.min.js"></script>
+
+  <!-- Font Awesome for icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+
+  <!-- Chart.js for gauge -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="transition-colors duration-300">
+
+  <!-- Header -->
+  <nav class="bg-white dark:bg-gray-800 shadow">
+    <div class="max-w-screen-xl mx-auto px-4 py-4 flex justify-between items-center">
+      <h1 class="text-2xl font-bold flex items-center gap-2">
+        <i class="fas fa-chart-line text-blue-600"></i>
+        Market Mood
+      </h1>
+      <div class="flex items-center gap-4">
+        <span id="lastUpdated" class="text-sm text-gray-500 dark:text-gray-400">Last updated: loading...</span>
+        <button id="darkModeToggle" class="text-xl">
+          <i class="fas fa-moon"></i>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="max-w-5xl mx-auto px-4 py-8">
+    <!-- Gauge -->
+    <section class="text-center mb-10">
+      <h2 class="text-xl font-semibold mb-2">Today's Market Mood</h2>
+      <p class="text-gray-500 dark:text-gray-400 mb-6">Based on latest Indian financial headlines</p>
+      <div class="relative w-64 mx-auto">
+        <canvas id="moodGauge" width="300" height="150"></canvas>
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 text-3xl font-bold" id="moodScore">0</div>
+      </div>
+      <div class="mt-4 flex justify-center gap-6 text-sm">
+        <div><span id="bullishCount" class="font-semibold text-green-500">0</span> Bullish</div>
+        <div><span id="neutralCount" class="font-semibold text-gray-500">0</span> Neutral</div>
+        <div><span id="bearishCount" class="font-semibold text-red-500">0</span> Bearish</div>
+      </div>
+      <button id="refreshBtn" class="mt-6 bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2 rounded shadow">
+        <i class="fas fa-sync-alt mr-2"></i>Refresh Data
+      </button>
+    </section>
+
+    <!-- Headlines -->
+    <section>
+      <h3 class="text-lg font-semibold mb-4">Latest Headlines</h3>
+      <div id="headlineList" class="grid gap-4 md:grid-cols-2">
+        <!-- Headlines will be inserted here -->
+      </div>
+    </section>
+  </main>
+
+  <!-- Scripts -->
+  <script>
+    let isDarkMode = localStorage.getItem('darkMode') === 'true';
+
+    function toggleDarkMode() {
+      isDarkMode = !isDarkMode;
+      document.documentElement.classList.toggle('dark', isDarkMode);
+      localStorage.setItem('darkMode', isDarkMode);
+    }
+
+    document.getElementById('darkModeToggle').addEventListener('click', toggleDarkMode);
+    if (isDarkMode) document.documentElement.classList.add('dark');
+
+    let chart;
+
+    function updateGauge(score) {
+      const ctx = document.getElementById('moodGauge').getContext('2d');
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Mood', 'Remaining'],
+          datasets: [{
+            data: [Math.abs(score), 100 - Math.abs(score)],
+            backgroundColor: [score >= 0 ? '#10b981' : '#ef4444', '#e5e7eb'],
+            borderWidth: 0,
+            circumference: 180,
+            rotation: 270,
+            cutout: '80%'
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } }
+        }
+      });
+      document.getElementById('moodScore').textContent = score > 0 ? `+${score}` : `${score}`;
+    }
+
+    function renderHeadlines(headlines) {
+      const container = document.getElementById('headlineList');
+      container.innerHTML = '';
+      headlines.forEach(h => {
+        const div = document.createElement('div');
+        const labelColor = h.sentiment_label === 'Bullish' ? 'green'
+                        : h.sentiment_label === 'Bearish' ? 'red' : 'gray';
+        div.className = `border-l-4 border-${labelColor}-500 bg-white dark:bg-gray-800 rounded p-4 shadow`;
+        div.innerHTML = `
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-xs text-gray-500">${h.source}</span>
+            <span class="text-sm font-medium text-${labelColor}-600">${h.sentiment_label}</span>
+          </div>
+          <h4 class="text-md font-semibold">
+            ${h.url ? `<a href="${h.url}" target="_blank" class="hover:text-blue-600">${h.title}</a>` : h.title}
+          </h4>
+          <p class="text-xs text-gray-400 mt-1">Score: ${h.sentiment_score}</p>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    async function loadData() {
+      const btn = document.getElementById('refreshBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Loading...';
+
+      try {
+        const res = await fetch('/api/headlines');
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+
+        updateGauge(data.mood_score);
+        renderHeadlines(data.headlines);
+        document.getElementById('bullishCount').textContent = data.sentiment_counts.bullish;
+        document.getElementById('neutralCount').textContent = data.sentiment_counts.neutral;
+        document.getElementById('bearishCount').textContent = data.sentiment_counts.bearish;
+        document.getElementById('lastUpdated').textContent = 'Last updated: ' + data.last_updated;
+      } catch (err) {
+        console.error(err);
+        alert('Failed to load data.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt mr-2"></i>Refresh Data';
+      }
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', loadData);
+    document.addEventListener('DOMContentLoaded', loadData);
+  </script>
+</body>
+</html>
